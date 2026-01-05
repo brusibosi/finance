@@ -148,27 +148,32 @@ def calculate_average_metrics(
     return total / Decimal(len(filtered))
 
 
-def calculate_realized_pnl_cum_corrected(
+def calculate_realized_pnl_from_exit_transactions(
     transactions: Sequence[LedgerTransactionLike],
 ) -> Decimal:
     """
-    Calculate corrected realized P&L cumulative value.
+    Calculate cumulative realized P&L from all exit transactions.
 
-    Old BUY transactions may have realized_pnl_delta as 0/NULL; in that case
-    subtract commission/fees/taxes to enforce P&L consistency.
+    Realized P&L only occurs on position exits (SELL/SL/TP).
+    BUY transactions have realized_pnl_delta = 0.
+
+    Formula: realized_pnl_cum = sum(realized_pnl_delta for all exits)
+
+    Args:
+        transactions: All ledger transactions
+
+    Returns:
+        Cumulative realized P&L
     """
     _ensure_sequence(transactions, "transactions")
-    total_realized = Decimal("0")
-    total_cost_adjustment = Decimal("0")
+
+    realized_pnl_cum = Decimal("0")
 
     for tx in transactions:
-        realized = Decimal(str(tx.realized_pnl_delta)) if tx.realized_pnl_delta is not None else Decimal("0")
-        total_realized += realized
+        # Only SELL/SL/TP transactions have realized P&L
+        if tx.side == "SELL":
+            if tx.realized_pnl_delta is not None:
+                realized_pnl_cum += Decimal(str(tx.realized_pnl_delta))
 
-        if tx.side == "BUY" and (tx.realized_pnl_delta is None or abs(realized) < Decimal("0.0001")):
-            commission = Decimal(str(tx.commission)) if tx.commission is not None else Decimal("0")
-            fees = Decimal(str(tx.fees)) if tx.fees is not None else Decimal("0")
-            taxes = Decimal(str(tx.taxes)) if tx.taxes is not None else Decimal("0")
-            total_cost_adjustment += commission + fees + taxes
+    return realized_pnl_cum
 
-    return total_realized - total_cost_adjustment

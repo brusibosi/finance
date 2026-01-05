@@ -35,6 +35,36 @@ class LedgerTransactionLike(Protocol):
     taxes: Decimal | float | int | None
 
 
+class CashMovementTransactionLike(Protocol):
+    """Protocol for transactions that affect cash balance."""
+
+    type: str  # FILL, SL, TP, DEPOSIT, WITHDRAWAL
+    side: str | None  # BUY, SELL (None for DEPOSIT/WITHDRAWAL)
+    qty: Decimal | None
+    price: Decimal | None
+    commission: Decimal | None
+    fees: Decimal | None
+    taxes: Decimal | None
+    amount: Decimal | None  # For DEPOSIT/WITHDRAWAL
+
+
+class PositionTransactionLike(Protocol):
+    """Protocol for transactions used in position reconstruction."""
+
+    symbol: str
+    timestamp: str  # ISO format datetime
+    type: str
+    side: str
+    qty: Decimal
+    price: Decimal
+    fx_rate_used: Decimal
+    commission: Decimal
+    fees: Decimal
+    taxes: Decimal
+    position_qty_after: Decimal
+    position_avg_cost_after: Decimal
+
+
 class AccountFinancialCalculator:
     """
     Facade for all accounting calculations.
@@ -322,15 +352,41 @@ class AccountFinancialCalculator:
         return calculate_average_metrics(values)
 
     @staticmethod
-    def calculate_realized_pnl_cum_corrected(
-        transactions: Sequence["LedgerTransactionLike"],
+    def calculate_cash_from_initial_and_transactions(
+        initial_equity: Decimal,
+        transactions: list,
     ) -> Decimal:
-        """Calculate corrected realized P&L cumulative value."""
-        from aletrader.finance.accounting.domain.aggregations import (
-            calculate_realized_pnl_cum_corrected,
+        """Calculate current cash from initial equity and transactions."""
+        from aletrader.finance.accounting.domain.calculations import (
+            calculate_cash_from_initial_and_transactions,
         )
 
-        return calculate_realized_pnl_cum_corrected(transactions)
+        return calculate_cash_from_initial_and_transactions(initial_equity, transactions)
+
+    @staticmethod
+    def calculate_realized_pnl_from_exit_transactions(
+        transactions: Sequence[LedgerTransactionLike],
+    ) -> Decimal:
+        """Calculate realized P&L from exit transactions only."""
+        from aletrader.finance.accounting.domain.aggregations import (
+            calculate_realized_pnl_from_exit_transactions,
+        )
+
+        return calculate_realized_pnl_from_exit_transactions(transactions)
+
+    @staticmethod
+    def reconstruct_positions_from_transactions(
+        transactions: list,
+        market_prices: dict[str, Decimal],
+        fx_rates: dict[str, Decimal],
+    ) -> list[dict]:
+        """Reconstruct open positions from transaction history."""
+        from aletrader.finance.accounting.domain.position_maintenance import (
+            reconstruct_positions_from_transactions,
+        )
+
+        return reconstruct_positions_from_transactions(transactions, market_prices, fx_rates)
+
 
     @staticmethod
     def validate_balance_invariant(

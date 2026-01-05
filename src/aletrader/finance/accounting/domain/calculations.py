@@ -227,3 +227,69 @@ def calculate_total_pnl_metrics(
     total_pnl = calculate_total_pnl(initial_equity=initial_equity, current_equity=current_equity)
     total_pnl_pct = calculate_total_pnl_pct(total_pnl=total_pnl, initial_equity=initial_equity)
     return (total_pnl, total_pnl_pct)
+
+
+def calculate_cash_from_initial_and_transactions(
+    initial_equity: Decimal,
+    transactions: list,
+) -> Decimal:
+    """
+    Calculate current cash from initial equity and all cash movements.
+
+    Formula: cash = initial_equity + sum(cash_delta for all transactions)
+
+    Cash movements:
+    - BUY: cash decreases by (qty * price + commission + fees + taxes)
+    - SELL: cash increases by (qty * price - commission - fees - taxes)
+    - SL/TP: cash increases by (qty * price - commission - fees - taxes)
+    - DEPOSIT: cash increases by amount
+    - WITHDRAWAL: cash decreases by amount
+
+    Args:
+        initial_equity: Starting cash balance
+        transactions: All transactions affecting cash (CashMovementTransactionLike)
+
+    Returns:
+        Current cash balance
+
+    Raises:
+        TypeError: If initial_equity is not Decimal
+    """
+    _ensure_decimal(initial_equity, "initial_equity")
+    
+    cash = initial_equity
+
+    for tx in transactions:
+        # Convert to Decimal with safety
+        commission = Decimal(str(tx.commission)) if tx.commission is not None else Decimal("0")
+        fees = Decimal(str(tx.fees)) if tx.fees is not None else Decimal("0")
+        taxes = Decimal(str(tx.taxes)) if tx.taxes is not None else Decimal("0")
+        costs = commission + fees + taxes
+
+        if tx.type == "FILL":
+            qty = Decimal(str(tx.qty))
+            price = Decimal(str(tx.price))
+
+            if tx.side == "BUY":
+                # Cash out: qty * price + costs
+                cash -= qty * price + costs
+            elif tx.side == "SELL":
+                # Cash in: qty * price - costs
+                cash += qty * price - costs
+
+        elif tx.type in ("SL", "TP"):
+            # Exit: cash in
+            qty = Decimal(str(tx.qty))
+            price = Decimal(str(tx.price))
+            cash += qty * price - costs
+
+        elif tx.type == "DEPOSIT":
+            amount = Decimal(str(tx.amount))
+            cash += amount
+
+        elif tx.type == "WITHDRAWAL":
+            amount = Decimal(str(tx.amount))
+            cash -= amount
+
+    return cash
+

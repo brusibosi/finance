@@ -99,3 +99,80 @@ def calculate_avg_entry_price_and_fx_from_transactions(
     avg_fx = avg_base_cost / avg_price
 
     return avg_price, avg_fx
+
+
+def reconstruct_positions_from_transactions(
+    transactions: list,
+    market_prices: dict[str, Decimal],
+    fx_rates: dict[str, Decimal],
+) -> list[dict]:
+    """
+    Reconstruct open positions from transaction history.
+
+    For each symbol:
+    1. Find last transaction
+    2. If position_qty_after > 0, position is open
+    3. Calculate unrealized P&L using current market price
+
+    Args:
+        transactions: All position transactions (PositionTransactionLike)
+        market_prices: Current market prices by symbol
+        fx_rates: Current FX rates by symbol
+
+    Returns:
+        List of position state dictionaries
+    """
+    from aletrader.finance.accounting.domain.position_calculations import (
+        calculate_unrealized_pnl,
+    )
+
+    # Group by symbol and find last transaction
+    last_tx_per_symbol: dict[str, any] = {}
+
+    for tx in transactions:
+        symbol = tx.symbol
+        if symbol not in last_tx_per_symbol:
+            last_tx_per_symbol[symbol] = tx
+        else:
+            # Compare timestamps (ISO format strings)
+            if tx.timestamp > last_tx_per_symbol[symbol].timestamp:
+                last_tx_per_symbol[symbol] = tx
+
+    positions = []
+
+    for symbol, last_tx in last_tx_per_symbol.items():
+        qty_after = Decimal(str(last_tx.position_qty_after))
+
+        if qty_after <= 0:
+            continue  # Position closed
+
+        # Get current market data (fallback to last transaction price/fx)
+        last_price = market_prices.get(symbol, Decimal(str(last_tx.price)))
+        fx_rate = fx_rates.get(symbol, Decimal(str(last_tx.fx_rate_used)))
+        avg_cost = Decimal(str(last_tx.position_avg_cost_after))
+
+        # Calculate unrealized P&L
+        unrealized_pnl = calculate_unrealized_pnl(
+            qty=qty_after,
+            last_price=last_price,
+            fx=fx_rate,
+            avg_cost=avg_cost,
+        )
+
+        # Calculate notional (market value)
+        notional = qty_after * last_price * fx_rate
+
+        positions.append(
+            {
+                "symbol": symbol,
+                "qty": qty_after,
+                "avg_cost": avg_cost,
+                "last_price": last_price,
+                "fx": fx_rate,
+                "notional": notional,
+                "unrealized_pnl": unrealized_pnl,
+            }
+        )
+
+    return positions
+
