@@ -15,10 +15,9 @@ getcontext().prec = 28  # High precision for financial calculations
 
 
 class AccountStateBefore(TypedDict):
-    """Account state before transaction."""
+    """Account state before transaction (Balance Sheet Approach)."""
 
     cash: Decimal
-    realized_pnl_cum: Decimal
     max_equity_to_date: Decimal
     initial_equity: Decimal
 
@@ -47,7 +46,7 @@ class TransactionInput(TypedDict):
 
 
 class TransactionResult(TypedDict):
-    """Transaction result with all calculated fields."""
+    """Transaction result with all calculated fields (Balance Sheet Approach)."""
 
     gross_value: Decimal
     cost_total: Decimal
@@ -56,8 +55,7 @@ class TransactionResult(TypedDict):
     position_qty_after: Decimal
     position_avg_cost_after: Decimal
     position_notional_after: Decimal
-    realized_pnl_delta: Decimal
-    realized_pnl_cum_after: Decimal
+    realized_pnl_delta: Decimal  # Retained for informational/logging purposes only
     last_price_after: Decimal
     fx_after: Decimal
     position_removed: bool
@@ -180,7 +178,6 @@ def _apply_order_transaction(
             else Decimal("0")
         ),
         realized_pnl_delta=Decimal("0"),
-        realized_pnl_cum_after=account_before["realized_pnl_cum"],  # Unchanged
         last_price_after=tx_input["price"],
         fx_after=tx_input["fx"],
         position_removed=False,
@@ -208,7 +205,6 @@ def _apply_mark_to_market(
         position_avg_cost_after=position_before["avg_cost"],  # Unchanged
         position_notional_after=position_before["qty"] * tx_input["price"] * tx_input["fx"],
         realized_pnl_delta=Decimal("0"),
-        realized_pnl_cum_after=account_before["realized_pnl_cum"],  # Unchanged
         last_price_after=tx_input["price"],
         fx_after=tx_input["fx"],
         position_removed=False,
@@ -251,12 +247,13 @@ def _apply_buy_fill(
 
     position_notional_after = qty_after * tx_input["price"] * tx_input["fx"]
 
-    # CRITICAL: Transaction costs reduce realized P&L immediately
-    # This ensures P&L consistency: total_pnl = realized + unrealized
-    # Transaction costs reduce equity, so they must be reflected in realized P&L
-    # For BUY: costs are negative (reduce P&L)
-    realized_pnl_delta = -cost_total
-    realized_pnl_cum_after = account_before["realized_pnl_cum"] + realized_pnl_delta
+    # CRITICAL FIX: Transaction costs on BUY do NOT affect realized P&L
+    # They are already included in avg_cost, which affects unrealized P&L
+    # Realized P&L only changes when positions are SOLD (in _apply_sell_fill)
+    # Setting realized_pnl_delta = -cost_total was DOUBLE-COUNTING costs!
+    # This was the root cause of the £680 P&L consistency violation (FR-013)
+    # Balance Sheet Approach: P&L delta retained for informational purposes only
+    realized_pnl_delta = Decimal("0")
 
     return TransactionResult(
         gross_value=gross_value,
@@ -266,8 +263,7 @@ def _apply_buy_fill(
         position_qty_after=qty_after,
         position_avg_cost_after=avg_cost_after,
         position_notional_after=position_notional_after,
-        realized_pnl_delta=realized_pnl_delta,  # Transaction costs reduce realized P&L
-        realized_pnl_cum_after=realized_pnl_cum_after,
+        realized_pnl_delta=realized_pnl_delta,  # Always 0 for BUY (costs captured in avg_cost)
         last_price_after=tx_input["price"],
         fx_after=tx_input["fx"],
         position_removed=False,
@@ -291,10 +287,9 @@ def _apply_sell_fill(
 
     cash_after = account_before["cash"] + net_value  # net_value is positive for SELL
 
-    # Calculate realized P&L
+    # Calculate realized P&L (informational only - not stored in database)
     pnl_gross = (tx_input["price"] * tx_input["fx"] - position_before["avg_cost"]) * tx_input["qty"]
     realized_pnl_delta = pnl_gross - cost_total
-    realized_pnl_cum_after = account_before["realized_pnl_cum"] + realized_pnl_delta
 
     # Update position
     qty_after = position_before["qty"] - tx_input["qty"]
@@ -315,8 +310,7 @@ def _apply_sell_fill(
         position_qty_after=qty_after,
         position_avg_cost_after=avg_cost_after,
         position_notional_after=position_notional_after,
-        realized_pnl_delta=realized_pnl_delta,
-        realized_pnl_cum_after=realized_pnl_cum_after,
+        realized_pnl_delta=realized_pnl_delta,  # Informational only (not stored)
         last_price_after=tx_input["price"],
         fx_after=tx_input["fx"],
         position_removed=position_removed,

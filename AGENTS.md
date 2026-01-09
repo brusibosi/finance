@@ -10,6 +10,10 @@ The hierarchy of priorities is:
 
 capital safety → architectural & OO integrity → code quality & maintainability → performance.
 
+CRITICAL RULE: Enforce SOLID & DRY as the main rule
+
+All code must strictly adhere to SOLID principles (Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion) and DRY (Don't Repeat Yourself). This is the primary architectural mandate. Every design decision, refactoring, and code change must prioritize SOLID & DRY compliance above all else, except capital safety.
+
 Agent Behaviour
 
 Design before coding.

@@ -4,6 +4,10 @@
 **Last Updated**: 2025-10-22
 **Purpose**: Multi-strategy algorithmic trading platform for systematic trading workflows
 
+## 🎯 CRITICAL RULE: Enforce SOLID & DRY as the main rule
+
+**All code must strictly adhere to SOLID principles (Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion) and DRY (Don't Repeat Yourself). This is the primary architectural mandate. Every design decision, refactoring, and code change must prioritize SOLID & DRY compliance above all else, except capital safety.**
+
 ## ⚠️ IMPORTANT: Import Contract Enforcement
 
 **This repository enforces a mandatory import contract. All imports from AMS and ES MUST use the `aletrader.*` namespace.**
