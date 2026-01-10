@@ -148,32 +148,94 @@ def calculate_average_metrics(
     return total / Decimal(len(filtered))
 
 
-def calculate_realized_pnl_from_exit_transactions(
+def calculate_realized_pnl_from_transaction_history(
     transactions: Sequence[LedgerTransactionLike],
 ) -> Decimal:
     """
-    Calculate cumulative realized P&L from all exit transactions.
+    Calculate cumulative realized P&L from transaction history using FIFO cost basis.
+
+    This derives realized P&L from raw transaction data (qty, price, commission, fees, taxes)
+    without relying on stored realized_pnl_delta field (balance sheet approach).
 
     Realized P&L only occurs on position exits (SELL/SL/TP).
-    BUY transactions have realized_pnl_delta = 0.
+    Uses FIFO (First In, First Out) to track cost basis per symbol.
 
-    Formula: realized_pnl_cum = sum(realized_pnl_delta for all exits)
+    Formula per exit:
+        realized_pnl_delta = exit_proceeds - exit_cost
+        exit_proceeds = (qty * price * fx) - commission - fees - taxes
+        exit_cost = qty * avg_cost_per_share
 
     Args:
-        transactions: All ledger transactions
+        transactions: All ledger transactions (must have symbol, side, type, qty, price, 
+                     commission, fees, taxes, fx attributes)
 
     Returns:
-        Cumulative realized P&L
+        Cumulative realized P&L across all exits
+
+    Raises:
+        ValueError: If transaction sequence is invalid
     """
     _ensure_sequence(transactions, "transactions")
 
+    # Track cost basis per symbol using FIFO
+    # symbol -> list of (qty, total_cost) lots
+    cost_basis_by_symbol: dict[str, list[tuple[Decimal, Decimal]]] = {}
+    
     realized_pnl_cum = Decimal("0")
 
     for tx in transactions:
-        # Only SELL/SL/TP transactions have realized P&L
-        if tx.side == "SELL":
-            if tx.realized_pnl_delta is not None:
-                realized_pnl_cum += Decimal(str(tx.realized_pnl_delta))
+        symbol = tx.symbol
+        qty = Decimal(str(tx.qty))
+        price = Decimal(str(tx.price))
+        commission = Decimal(str(tx.commission)) if tx.commission is not None else Decimal("0")
+        fees = Decimal(str(tx.fees)) if tx.fees is not None else Decimal("0")
+        taxes = Decimal(str(tx.taxes)) if tx.taxes is not None else Decimal("0")
+        fx = Decimal(str(tx.fx)) if hasattr(tx, 'fx') and tx.fx is not None else Decimal("1.0")
+        
+        costs = commission + fees + taxes
+
+        if tx.side == "BUY":
+            # Add to cost basis (FIFO queue)
+            total_cost = (qty * price * fx) + costs
+            
+            if symbol not in cost_basis_by_symbol:
+                cost_basis_by_symbol[symbol] = []
+            
+            cost_basis_by_symbol[symbol].append((qty, total_cost))
+
+        elif tx.side == "SELL":
+            # Exit: calculate realized P&L using FIFO
+            if symbol not in cost_basis_by_symbol or not cost_basis_by_symbol[symbol]:
+                # No cost basis available - this shouldn't happen in correct data
+                # Skip this exit (realized P&L = 0 for this transaction)
+                continue
+            
+            exit_proceeds = (qty * price * fx) - costs
+            
+            # Calculate cost from FIFO lots
+            remaining_to_exit = qty
+            exit_cost = Decimal("0")
+            
+            while remaining_to_exit > 0 and cost_basis_by_symbol[symbol]:
+                lot_qty, lot_cost = cost_basis_by_symbol[symbol][0]
+                avg_cost_per_share = lot_cost / lot_qty
+                
+                if lot_qty <= remaining_to_exit:
+                    # Use entire lot
+                    exit_cost += lot_cost
+                    remaining_to_exit -= lot_qty
+                    cost_basis_by_symbol[symbol].pop(0)
+                else:
+                    # Use partial lot
+                    exit_cost += remaining_to_exit * avg_cost_per_share
+                    new_lot_qty = lot_qty - remaining_to_exit
+                    new_lot_cost = new_lot_qty * avg_cost_per_share
+                    cost_basis_by_symbol[symbol][0] = (new_lot_qty, new_lot_cost)
+                    remaining_to_exit = Decimal("0")
+            
+            realized_pnl_delta = exit_proceeds - exit_cost
+            realized_pnl_cum += realized_pnl_delta
 
     return realized_pnl_cum
+
 

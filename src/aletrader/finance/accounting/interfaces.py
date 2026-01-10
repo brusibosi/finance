@@ -432,8 +432,8 @@ class AccountFinancialCalculator:
 class AccountStateBefore(Protocol):
     """Protocol for account state before transaction."""
 
+    # Balance Sheet Approach: P&L derived, not stored
     cash: Decimal
-    realized_pnl_cum: Decimal
     max_equity_to_date: Decimal
     initial_equity: Decimal
 
@@ -471,8 +471,8 @@ class TransactionResult(Protocol):
     position_qty_after: Decimal
     position_avg_cost_after: Decimal
     position_notional_after: Decimal
-    realized_pnl_delta: Decimal
-    realized_pnl_cum_after: Decimal
+    # Balance Sheet Approach: P&L derived, not stored
+    realized_pnl_delta: Decimal  # Kept for informational purposes only
     last_price_after: Decimal
     fx_after: Decimal
     position_removed: bool
